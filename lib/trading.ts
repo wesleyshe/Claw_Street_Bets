@@ -77,7 +77,9 @@ export function computePortfolioMetrics(
 export function buildPriceMap(prices: Partial<Record<string, { usd: number }>>) {
   const map: PriceMap = {};
   for (const [coinId, quote] of Object.entries(prices)) {
-    map[coinId] = quote.usd;
+    if (quote && typeof quote.usd === "number" && Number.isFinite(quote.usd)) {
+      map[coinId] = quote.usd;
+    }
   }
   return map;
 }
