@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
         id: agent.id,
         name: agent.name,
         description: agent.description,
+        tradingStyle: agent.tradingStyle,
         bankrupt: agent.bankrupt,
         claimedAt: agent.claimedAt,
         createdAt: agent.createdAt,

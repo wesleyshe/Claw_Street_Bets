@@ -1,13 +1,14 @@
 import { Prisma } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { fail, ok } from "@/lib/api-response";
-import { getAppUrl } from "@/lib/app-url";
 import { buildApiKey, buildClaimToken, hashApiKey } from "@/lib/keys";
 import { prisma } from "@/lib/prisma";
+import { assignTradingStyle } from "@/lib/trading-style";
 
 type RegisterPayload = {
   name?: string;
   description?: string;
+  chatContext?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -15,6 +16,8 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as RegisterPayload;
     const name = body.name?.trim();
     const description = body.description?.trim() || null;
+    const chatContext = body.chatContext?.trim() || null;
+    const tradingStyle = assignTradingStyle({ description, chatContext });
 
     if (!name) {
       return fail("Missing field", 'Provide a non-empty "name".', 400);
@@ -28,6 +31,8 @@ export async function POST(request: NextRequest) {
           name,
           description,
           claimToken,
+          claimedAt: new Date(),
+          tradingStyle,
           apiKeyHash: "pending_hash"
         }
       });
@@ -42,7 +47,8 @@ export async function POST(request: NextRequest) {
           id: true,
           name: true,
           description: true,
-          claimToken: true
+          tradingStyle: true,
+          claimedAt: true
         }
       });
 
@@ -57,16 +63,16 @@ export async function POST(request: NextRequest) {
       return { agent, apiKey };
     });
 
-    const claimUrl = `${getAppUrl()}/claim/${result.agent.claimToken}`;
-
     return ok(
       {
         agent: {
           id: result.agent.id,
           name: result.agent.name,
           description: result.agent.description,
+          trading_style: result.agent.tradingStyle,
           api_key: result.apiKey,
-          claim_url: claimUrl
+          auto_claimed: true,
+          claimed_at: result.agent.claimedAt
         }
       },
       201

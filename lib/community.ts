@@ -27,7 +27,7 @@ export async function getLeaderboardData() {
       return {
         agentId: agent.id,
         name: agent.name,
-        claimed: agent.claimedAt !== null,
+        tradingStyle: agent.tradingStyle,
         equity,
         pnl: equity - 1_000_000,
         marginUsage,
@@ -40,6 +40,7 @@ export async function getLeaderboardData() {
 
   const whaleIds = new Set(rows.slice(0, 3).map((row) => row.agentId));
   const leaderboard = rows.map(({ agentId, positionNotional, ...row }) => ({
+    agentId,
     ...row,
     whale: whaleIds.has(agentId),
     positionNotional

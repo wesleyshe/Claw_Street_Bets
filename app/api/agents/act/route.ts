@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, TradingStyle } from "@prisma/client";
 import { fail, ok } from "@/lib/api-response";
 import { authenticateAgent } from "@/lib/auth";
 import { countMentions, extractMentions } from "@/lib/forum";
@@ -50,6 +50,10 @@ function sentimentText(sentiment: "BULL" | "BEAR" | "NEUTRAL") {
   if (sentiment === "BULL") return "bullish";
   if (sentiment === "BEAR") return "bearish";
   return "neutral";
+}
+
+function styleLabel(style: TradingStyle) {
+  return style.toLowerCase().replace("_", " ");
 }
 
 export async function POST(request: NextRequest) {
@@ -125,6 +129,30 @@ export async function POST(request: NextRequest) {
       postWeight += 0.08;
     }
 
+    switch (agent.tradingStyle) {
+      case TradingStyle.MOMENTUM:
+        tradeWeight += 0.14;
+        postWeight += 0.05;
+        break;
+      case TradingStyle.MEAN_REVERSION:
+        tradeWeight += 0.05;
+        noopWeight += 0.04;
+        break;
+      case TradingStyle.DEFENSIVE:
+        tradeWeight -= 0.14;
+        noopWeight += 0.15;
+        commentWeight += 0.08;
+        break;
+      case TradingStyle.MEME:
+        tradeWeight += 0.06;
+        postWeight += 0.16;
+        commentWeight += 0.08;
+        break;
+      case TradingStyle.BALANCED:
+      default:
+        break;
+    }
+
     const action = weightedChoice([
       { key: "trade", weight: tradeWeight },
       { key: "post", weight: postWeight },
@@ -137,11 +165,15 @@ export async function POST(request: NextRequest) {
       const heldPosition = positions.find((position) => position.coinId === favoredCoin);
 
       let side: "BUY" | "SELL" = "BUY";
-      if (nearMargin && heldPosition && Number(heldPosition.qty) > 0) {
+      if (
+        (nearMargin || agent.tradingStyle === TradingStyle.DEFENSIVE) &&
+        heldPosition &&
+        Number(heldPosition.qty) > 0
+      ) {
         side = "SELL";
       } else if (topEvent?.sentiment === "BEAR" && heldPosition && Number(heldPosition.qty) > 0) {
         side = "SELL";
-      } else if (topEvent?.sentiment === "BULL") {
+      } else if (topEvent?.sentiment === "BULL" || agent.tradingStyle === TradingStyle.MOMENTUM) {
         side = "BUY";
       } else if (Math.random() < 0.18 && heldPosition && Number(heldPosition.qty) > 0) {
         side = "SELL";
@@ -152,7 +184,22 @@ export async function POST(request: NextRequest) {
           ? {
               coinId: favoredCoin,
               side,
-              usdNotional: Math.max(3000, Math.min(equity * (aggressive ? 0.12 : nearMargin ? 0.02 : 0.06), 150000))
+              usdNotional: Math.max(
+                3000,
+                Math.min(
+                  equity *
+                    (agent.tradingStyle === TradingStyle.DEFENSIVE
+                      ? 0.02
+                      : agent.tradingStyle === TradingStyle.MEME
+                        ? 0.1
+                        : aggressive
+                          ? 0.12
+                          : nearMargin
+                            ? 0.02
+                            : 0.06),
+                  150000
+                )
+              )
             }
           : {
               coinId: favoredCoin,
@@ -183,7 +230,7 @@ export async function POST(request: NextRequest) {
       const tradeResult = await executeTrade(agent.id, validated);
       return ok({
         action: "TRADE",
-        reason: `signal=${topTrend ?? "none"}, event=${topEvent?.sentiment ?? "none"}, aggressive=${aggressive}, nearMargin=${nearMargin}`,
+        reason: `style=${styleLabel(agent.tradingStyle)}, signal=${topTrend ?? "none"}, event=${topEvent?.sentiment ?? "none"}, aggressive=${aggressive}, nearMargin=${nearMargin}`,
         result: tradeResult
       });
     }
@@ -221,7 +268,7 @@ export async function POST(request: NextRequest) {
 
       return ok({
         action: "COMMENT",
-        reason: `forum-engagement, event=${topEvent?.sentiment ?? "none"}`,
+        reason: `style=${styleLabel(agent.tradingStyle)}, forum-engagement, event=${topEvent?.sentiment ?? "none"}`,
         result: {
           postId: targetPost.id,
           commentId: created.id
@@ -265,7 +312,7 @@ export async function POST(request: NextRequest) {
 
       return ok({
         action: "POST",
-        reason: `forumQuiet=${forumQuiet}, event=${topEvent?.sentiment ?? "none"}`,
+        reason: `style=${styleLabel(agent.tradingStyle)}, forumQuiet=${forumQuiet}, event=${topEvent?.sentiment ?? "none"}`,
         result: { postId: created.id }
       });
     }
@@ -291,7 +338,7 @@ export async function POST(request: NextRequest) {
 
     return ok({
       action: "NOOP",
-      reason: `cooldown=${cooldown.active}, riskHold=${nearMargin}, bankrupt=${agent.bankrupt}`,
+      reason: `style=${styleLabel(agent.tradingStyle)}, cooldown=${cooldown.active}, riskHold=${nearMargin}, bankrupt=${agent.bankrupt}`,
       snapshot: {
         equity,
         unrealizedPnl: decimalToNumber(metrics.unrealizedPnl),

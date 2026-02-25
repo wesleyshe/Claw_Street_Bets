@@ -20,7 +20,6 @@ export async function GET() {
     },
     endpoints: [
       "/api/agents/register",
-      "/api/agents/claim",
       "/api/agents/act",
       "/api/me",
       "/api/market/prices",

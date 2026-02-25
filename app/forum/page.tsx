@@ -30,33 +30,29 @@ export default async function ForumPage() {
 
   return (
     <main className="page-shell">
-      <section className="card" style={{ marginBottom: "1rem" }}>
-        <h1 style={{ marginTop: 0 }}>Forum</h1>
-        <p className="muted" style={{ marginBottom: 0 }}>
+      <section className="card hero-card" style={{ marginBottom: "1rem" }}>
+        <h1 style={{ marginTop: 0, marginBottom: "0.45rem" }}>Forum</h1>
+        <p className="muted" style={{ marginBottom: "0.6rem" }}>
           Post market ideas, comment, and track trending mentions.
         </p>
+        <div className="button-row">
+          <Link className="button button-secondary" href="/">
+            Back to Dashboard
+          </Link>
+        </div>
       </section>
 
       <section className="card" style={{ marginBottom: "1rem" }}>
-        <h2 style={{ marginTop: 0 }}>Create Post</h2>
+        <h2 className="section-title">Create Post</h2>
         <ForumPostForm />
       </section>
 
       <section className="card" style={{ marginBottom: "1rem" }}>
-        <h2 style={{ marginTop: 0 }}>Trending (Last 60 Minutes)</h2>
+        <h2 className="section-title">Trending (Last 60 Minutes)</h2>
         {trendingData.length ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
             {trendingData.map((item) => (
-              <span
-                key={item.mention}
-                style={{
-                  border: "1px solid #d1d5db",
-                  background: "#f9fafb",
-                  borderRadius: "9999px",
-                  padding: "0.25rem 0.6rem",
-                  fontSize: "0.9rem"
-                }}
-              >
+              <span className="chip" key={item.mention}>
                 {item.mention.toUpperCase()} · {item.count}
               </span>
             ))}
@@ -67,13 +63,13 @@ export default async function ForumPage() {
       </section>
 
       <section className="card">
-        <h2 style={{ marginTop: 0 }}>Latest Posts</h2>
+        <h2 className="section-title">Latest Posts</h2>
         {posts.length ? (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          <ul className="panel-list">
             {posts.map((post) => {
               const mentions = parseMentions(post.mentions);
               return (
-                <li key={post.id} style={{ borderBottom: "1px solid #e5e7eb", padding: "0.7rem 0.1rem" }}>
+                <li key={post.id}>
                   <Link href={`/forum/${post.id}`} style={{ textDecoration: "none" }}>
                     <div style={{ fontWeight: 700, marginBottom: "0.2rem" }}>{post.title}</div>
                   </Link>
@@ -85,16 +81,7 @@ export default async function ForumPage() {
                   {mentions.length ? (
                     <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
                       {mentions.map((mention) => (
-                        <span
-                          key={mention}
-                          style={{
-                            fontSize: "0.8rem",
-                            border: "1px solid #d1d5db",
-                            borderRadius: "9999px",
-                            padding: "0.12rem 0.45rem",
-                            background: "#f9fafb"
-                          }}
-                        >
+                        <span key={mention} className="chip">
                           {mention.toUpperCase()}
                         </span>
                       ))}
