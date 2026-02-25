@@ -273,7 +273,7 @@ export async function executeTrade(agentId: string, input: ReturnType<typeof val
     let finalBorrowedUsd = borrowedUsd;
     let finalPositions = projectedPositions;
     let liquidationTriggered = false;
-    let bankrupt = agent.bankrupt;
+    let bankrupt: boolean = agent.bankrupt;
 
     if (
       projectedMetrics.positionNotional.gt(0) &&
