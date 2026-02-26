@@ -1,0 +1,2 @@
+export const STARTING_CASH_USD = 10_000;
+export const REQUIRED_TRADE_CADENCE_MS = 60 * 60 * 1000;

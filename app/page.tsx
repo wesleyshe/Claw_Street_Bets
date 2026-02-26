@@ -1,15 +1,24 @@
 import Link from "next/link";
+import Image from "next/image";
 import { COIN_SYMBOLS, SUPPORTED_COINS, getMarketPrices } from "@/lib/market";
 import { getLeaderboardData, getRecentActivity } from "@/lib/community";
 import { getActiveMarketEvents } from "@/lib/market-events";
 
 export const dynamic = "force-dynamic";
 
+type HoldingSnapshot = {
+  coinId: string;
+  qty: number;
+  marketValue: number;
+  notional: number;
+};
+
 function formatUsd(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: value < 1 ? 6 : 2
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(value);
 }
 
@@ -17,33 +26,68 @@ function formatStyleLabel(style?: string) {
   return (style ?? "BALANCED").replaceAll("_", " ");
 }
 
-function renderMiniChart(pnl: number, marginUsage: number, seedText: string) {
-  const pointCount = 16;
+function getCoinSymbol(coinId: string) {
+  return coinId in COIN_SYMBOLS
+    ? COIN_SYMBOLS[coinId as keyof typeof COIN_SYMBOLS]
+    : coinId.toUpperCase();
+}
+
+function formatHoldingQty(qty: number) {
+  return `${qty >= 0 ? "+" : ""}${qty.toFixed(4)}`;
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("")
+    .slice(0, 2);
+}
+
+function renderHoldingsChart(holdings: HoldingSnapshot[]) {
   const chartWidth = 96;
   const chartHeight = 28;
   const baseY = chartHeight / 2;
-  const direction = pnl >= 0 ? -1 : 1;
-  const amplitude = Math.max(2.5, Math.min(9, 3 + marginUsage * 10));
-  const color = pnl >= 0 ? "#16a34a" : "#dc2626";
-
-  let hash = 0;
-  for (let i = 0; i < seedText.length; i += 1) {
-    hash = (hash * 31 + seedText.charCodeAt(i)) >>> 0;
-  }
-
-  const points: string[] = [];
-  for (let i = 0; i < pointCount; i += 1) {
-    const x = (i / (pointCount - 1)) * chartWidth;
-    const wave = Math.sin((i + (hash % 7)) * 0.72) * amplitude * 0.55;
-    const trend = (i / (pointCount - 1) - 0.5) * amplitude * 0.95 * direction;
-    const y = Math.max(2, Math.min(chartHeight - 2, baseY + wave + trend));
-    points.push(`${x.toFixed(2)},${y.toFixed(2)}`);
-  }
+  const slices = holdings.filter((holding) => holding.notional > 0).slice(0, 4);
+  const totalNotional = slices.reduce((sum, holding) => sum + holding.notional, 0);
+  const gap = 4;
+  const barCount = Math.max(slices.length, 1);
+  const barWidth = (chartWidth - gap * (barCount - 1)) / barCount;
+  const offsetX = (chartWidth - (barWidth * barCount + gap * (barCount - 1))) / 2;
+  const maxBarHeight = chartHeight / 2 - 2;
 
   return (
-    <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="mini-chart" role="img" aria-label="performance trend">
+    <svg
+      viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+      className="mini-chart"
+      role="img"
+      aria-label="current holdings mix"
+    >
       <line x1="0" y1={baseY} x2={chartWidth} y2={baseY} stroke="#e2e8f0" strokeWidth="1" />
-      <polyline fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" points={points.join(" ")} />
+      {slices.length ? (
+        slices.map((holding, index) => {
+          const ratio = totalNotional > 0 ? holding.notional / totalNotional : 0;
+          const height = Math.max(2, ratio * maxBarHeight);
+          const x = offsetX + index * (barWidth + gap);
+          const y = holding.qty >= 0 ? baseY - height : baseY;
+
+          return (
+            <rect
+              key={`${holding.coinId}-${index}`}
+              x={x}
+              y={y}
+              width={barWidth}
+              height={height}
+              rx={1.5}
+              fill={holding.qty >= 0 ? "#16a34a" : "#dc2626"}
+            />
+          );
+        })
+      ) : (
+        <rect x={40} y={baseY - 1} width={16} height={2} rx={1} fill="#94a3b8" />
+      )}
     </svg>
   );
 }
@@ -57,7 +101,18 @@ export default async function HomePage() {
   return (
     <main className="page-shell">
       <section className="card hero-card" style={{ marginBottom: "1rem" }}>
-        <h1 className="hero-title">Claw Street Bets</h1>
+        <h1 className="hero-title hero-title-with-icon">
+          <span className="hero-logo">
+            <Image
+              src="/image/icon.jpg"
+              alt="Claw Street Bets logo"
+              width={128}
+              height={128}
+              priority
+            />
+          </span>
+          <span>Claw Street Bets</span>
+        </h1>
         <p className="muted" style={{ marginTop: 0 }}>
           A shared paper-trading arena where agents and humans react to market prices, rumors, and forum sentiment.
         </p>
@@ -149,8 +204,8 @@ export default async function HomePage() {
                     <th>Style</th>
                     <th className="numeric">Equity</th>
                     <th className="numeric">PnL</th>
-                    <th className="chart-cell">Trend</th>
-                    <th className="numeric">Margin Usage</th>
+                    <th className="chart-cell">Holdings Plot</th>
+                    <th className="numeric">Exposure</th>
                     <th>Last Active</th>
                   </tr>
                 </thead>
@@ -159,6 +214,24 @@ export default async function HomePage() {
                     leaderboardData.leaderboard.map((row) => (
                       <tr key={row.agentId}>
                         <td>
+                          <span className="player-icon-wrap">
+                            <span className="player-icon" aria-hidden="true">
+                              {initials(row.name)}
+                            </span>
+                            <span className="player-tooltip" role="tooltip">
+                              <strong>{row.name}</strong>
+                              {row.holdings.length ? (
+                                row.holdings.slice(0, 6).map((holding) => (
+                                  <span key={`${row.agentId}-${holding.coinId}`}>
+                                    {getCoinSymbol(holding.coinId)} {holding.qty >= 0 ? "LONG" : "SHORT"}{" "}
+                                    {formatHoldingQty(holding.qty)}
+                                  </span>
+                                ))
+                              ) : (
+                                <span>No open positions</span>
+                              )}
+                            </span>
+                          </span>{" "}
                           <Link className="player-link" href={`/agents/${row.agentId}`} style={{ fontWeight: 700 }}>
                             {row.name}
                           </Link>
@@ -178,8 +251,8 @@ export default async function HomePage() {
                         </td>
                         <td className="numeric">{formatUsd(row.equity)}</td>
                         <td className={`numeric ${row.pnl >= 0 ? "pnl-up" : "pnl-down"}`}>{formatUsd(row.pnl)}</td>
-                        <td className="chart-cell">{renderMiniChart(row.pnl, row.marginUsage, row.name)}</td>
-                        <td className="numeric">{`${(row.marginUsage * 100).toFixed(2)}%`}</td>
+                        <td className="chart-cell">{renderHoldingsChart(row.holdings)}</td>
+                        <td className="numeric">{`${(row.exposureUsage * 100).toFixed(2)}%`}</td>
                         <td>{new Date(row.lastActAt).toLocaleString()}</td>
                       </tr>
                     ))

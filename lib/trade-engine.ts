@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { buildPriceMap, computePortfolioMetrics, decimalToNumber, getCoinPriceOrThrow } from "@/lib/trading";
 
 export const TRADE_COOLDOWN_MS = 60_000;
-const MAX_LEVERAGE = new Prisma.Decimal(3);
+const MAX_GROSS_EXPOSURE = new Prisma.Decimal(1);
 const MAINTENANCE_MARGIN = new Prisma.Decimal(0.25);
 
 export type TradeRequest = {
@@ -23,6 +23,25 @@ export class TradeExecutionError extends Error {
     this.status = status;
     this.hint = hint;
   }
+}
+
+type MutablePosition = {
+  id: string;
+  agentId: string;
+  coinId: string;
+  qty: Prisma.Decimal;
+  avgEntryUsd: Prisma.Decimal;
+};
+
+function sweepBorrowedBalance(cashUsd: Prisma.Decimal, borrowedUsd: Prisma.Decimal) {
+  if (cashUsd.lte(0) || borrowedUsd.lte(0)) {
+    return { cashUsd, borrowedUsd };
+  }
+  const repay = Prisma.Decimal.min(cashUsd, borrowedUsd);
+  return {
+    cashUsd: cashUsd.minus(repay),
+    borrowedUsd: borrowedUsd.minus(repay)
+  };
 }
 
 export function validateTradeRequest(body: TradeRequest): {
@@ -119,7 +138,18 @@ export async function executeTrade(agentId: string, input: ReturnType<typeof val
     }
 
     const positions = await tx.position.findMany({ where: { agentId: agent.id } });
-    const byCoin = new Map(positions.map((position) => [position.coinId, position]));
+    const byCoin = new Map<string, MutablePosition>(
+      positions.map((position) => [
+        position.coinId,
+        {
+          id: position.id,
+          agentId: position.agentId,
+          coinId: position.coinId,
+          qty: new Prisma.Decimal(position.qty),
+          avgEntryUsd: new Prisma.Decimal(position.avgEntryUsd)
+        }
+      ])
+    );
     const priceUsd = getCoinPriceOrThrow(input.coinId, priceMap);
     const orderQty = input.qty ?? (input.usdNotional as Prisma.Decimal).div(priceUsd);
     const notionalUsd = orderQty.mul(priceUsd);
@@ -130,53 +160,85 @@ export async function executeTrade(agentId: string, input: ReturnType<typeof val
 
     let cashUsd = new Prisma.Decimal(portfolio.cashUsd);
     let borrowedUsd = new Prisma.Decimal(portfolio.borrowedUsd);
+    ({ cashUsd, borrowedUsd } = sweepBorrowedBalance(cashUsd, borrowedUsd));
+    const currentPositions = Array.from(byCoin.values()).map((position) => ({
+      coinId: position.coinId,
+      qty: position.qty,
+      avgEntryUsd: position.avgEntryUsd
+    }));
+    const currentMetrics = computePortfolioMetrics({ cashUsd, borrowedUsd }, currentPositions, priceMap);
+    const existing = byCoin.get(input.coinId);
+    const existingQty = existing?.qty ?? new Prisma.Decimal(0);
+    const existingAbsQty = existingQty.abs();
 
     if (input.side === TradeSide.BUY) {
-      const availableCash = Prisma.Decimal.min(cashUsd, notionalUsd);
-      cashUsd = cashUsd.minus(availableCash);
-      const borrowedAdd = notionalUsd.minus(availableCash);
-      if (borrowedAdd.gt(0)) {
-        borrowedUsd = borrowedUsd.plus(borrowedAdd);
+      if (cashUsd.lt(notionalUsd)) {
+        throw new TradeExecutionError(
+          "Insufficient cash",
+          "No margin is allowed. Reduce order size or close shorts first.",
+          403
+        );
       }
+      cashUsd = cashUsd.minus(notionalUsd);
 
-      const existing = byCoin.get(input.coinId);
-      if (existing) {
-        const nextQty = new Prisma.Decimal(existing.qty).plus(orderQty);
-        const nextAvgEntry = new Prisma.Decimal(existing.avgEntryUsd)
-          .mul(existing.qty)
-          .plus(priceUsd.mul(orderQty))
-          .div(nextQty);
-        byCoin.set(input.coinId, { ...existing, qty: nextQty, avgEntryUsd: nextAvgEntry });
+      const nextQty = existingQty.plus(orderQty);
+      if (nextQty.eq(0)) {
+        byCoin.delete(input.coinId);
       } else {
+        let nextAvgEntry = priceUsd;
+        if (existingQty.gt(0) && existing) {
+          nextAvgEntry = existing.avgEntryUsd
+            .mul(existingAbsQty)
+            .plus(priceUsd.mul(orderQty))
+            .div(nextQty.abs());
+        } else if (existingQty.lt(0) && existing) {
+          if (nextQty.lt(0)) {
+            nextAvgEntry = existing.avgEntryUsd;
+          } else if (nextQty.gt(0)) {
+            nextAvgEntry = priceUsd;
+          }
+        }
+
         byCoin.set(input.coinId, {
-          id: "",
+          id: existing?.id ?? "",
           agentId: agent.id,
           coinId: input.coinId,
-          qty: orderQty,
-          avgEntryUsd: priceUsd
+          qty: nextQty,
+          avgEntryUsd: nextAvgEntry
         });
       }
     } else {
-      const existing = byCoin.get(input.coinId);
-      if (!existing || !new Prisma.Decimal(existing.qty).gt(0)) {
-        throw new TradeExecutionError("No position", "Cannot SELL without an existing long position.");
-      }
-      if (new Prisma.Decimal(existing.qty).lt(orderQty)) {
-        throw new TradeExecutionError("Insufficient position", "SELL qty exceeds current position size.");
-      }
-
-      const nextQty = new Prisma.Decimal(existing.qty).minus(orderQty);
-      if (nextQty.gt(0)) {
-        byCoin.set(input.coinId, { ...existing, qty: nextQty });
-      } else {
-        byCoin.delete(input.coinId);
-      }
-
       cashUsd = cashUsd.plus(notionalUsd);
-      const repay = Prisma.Decimal.min(cashUsd, borrowedUsd);
-      cashUsd = cashUsd.minus(repay);
-      borrowedUsd = borrowedUsd.minus(repay);
+
+      const nextQty = existingQty.minus(orderQty);
+      if (nextQty.eq(0)) {
+        byCoin.delete(input.coinId);
+      } else {
+        let nextAvgEntry = priceUsd;
+
+        if (existingQty.lt(0) && existing) {
+          nextAvgEntry = existing.avgEntryUsd
+            .mul(existingAbsQty)
+            .plus(priceUsd.mul(orderQty))
+            .div(nextQty.abs());
+        } else if (existingQty.gt(0) && existing) {
+          if (nextQty.gt(0)) {
+            nextAvgEntry = existing.avgEntryUsd;
+          } else if (nextQty.lt(0)) {
+            nextAvgEntry = priceUsd;
+          }
+        }
+
+        byCoin.set(input.coinId, {
+          id: existing?.id ?? "",
+          agentId: agent.id,
+          coinId: input.coinId,
+          qty: nextQty,
+          avgEntryUsd: nextAvgEntry
+        });
+      }
     }
+    ({ cashUsd, borrowedUsd } = sweepBorrowedBalance(cashUsd, borrowedUsd));
 
     const projectedPositions = Array.from(byCoin.values()).map((position) => ({
       coinId: position.coinId,
@@ -185,60 +247,47 @@ export async function executeTrade(agentId: string, input: ReturnType<typeof val
     }));
     const projectedMetrics = computePortfolioMetrics({ cashUsd, borrowedUsd }, projectedPositions, priceMap);
 
-    if (input.side === TradeSide.BUY) {
-      if (!projectedMetrics.equity.gt(0)) {
-        throw new TradeExecutionError(
-          "Leverage violation",
-          "Order would result in non-positive equity.",
-          403
-        );
-      }
-      if (projectedMetrics.positionNotional.gt(projectedMetrics.equity.mul(MAX_LEVERAGE))) {
-        throw new TradeExecutionError(
-          "Leverage violation",
-          "Max leverage is 3x notional exposure relative to equity.",
-          403
-        );
-      }
+    if (!projectedMetrics.equity.gt(0)) {
+      throw new TradeExecutionError(
+        "Risk violation",
+        "Order would result in non-positive equity.",
+        403
+      );
+    }
+
+    const exceedsExposureCap = projectedMetrics.positionNotional.gt(
+      projectedMetrics.equity.mul(MAX_GROSS_EXPOSURE)
+    );
+    if (exceedsExposureCap && !projectedMetrics.positionNotional.lt(currentMetrics.positionNotional)) {
+      throw new TradeExecutionError(
+        "Risk violation",
+        "No margin is allowed. Gross exposure cannot exceed current equity.",
+        403
+      );
     }
 
     const existingTradePosition = positions.find((position) => position.coinId === input.coinId);
-    if (input.side === TradeSide.BUY) {
-      const pos = byCoin.get(input.coinId);
-      if (!pos) {
-        throw new TradeExecutionError("Position update failed", "Unable to update position.");
-      }
-      if (existingTradePosition) {
-        await tx.position.update({
-          where: { id: existingTradePosition.id },
-          data: {
-            qty: pos.qty,
-            avgEntryUsd: pos.avgEntryUsd
-          }
-        });
-      } else {
-        await tx.position.create({
-          data: {
-            agentId: agent.id,
-            coinId: input.coinId,
-            qty: pos.qty,
-            avgEntryUsd: pos.avgEntryUsd
-          }
-        });
-      }
-    } else {
-      const pos = byCoin.get(input.coinId);
-      if (pos && existingTradePosition) {
-        await tx.position.update({
-          where: { id: existingTradePosition.id },
-          data: {
-            qty: pos.qty,
-            avgEntryUsd: pos.avgEntryUsd
-          }
-        });
-      } else if (existingTradePosition) {
-        await tx.position.delete({ where: { id: existingTradePosition.id } });
-      }
+    const nextPosition = byCoin.get(input.coinId);
+
+    if (nextPosition && existingTradePosition) {
+      await tx.position.update({
+        where: { id: existingTradePosition.id },
+        data: {
+          qty: nextPosition.qty,
+          avgEntryUsd: nextPosition.avgEntryUsd
+        }
+      });
+    } else if (nextPosition) {
+      await tx.position.create({
+        data: {
+          agentId: agent.id,
+          coinId: input.coinId,
+          qty: nextPosition.qty,
+          avgEntryUsd: nextPosition.avgEntryUsd
+        }
+      });
+    } else if (existingTradePosition) {
+      await tx.position.delete({ where: { id: existingTradePosition.id } });
     }
 
     await tx.trade.create({
@@ -292,9 +341,10 @@ export async function executeTrade(agentId: string, input: ReturnType<typeof val
       await tx.position.deleteMany({ where: { agentId: agent.id } });
       finalPositions = [];
 
-      const repay = Prisma.Decimal.min(finalCashUsd, finalBorrowedUsd);
-      finalCashUsd = finalCashUsd.minus(repay);
-      finalBorrowedUsd = finalBorrowedUsd.minus(repay);
+      ({ cashUsd: finalCashUsd, borrowedUsd: finalBorrowedUsd } = sweepBorrowedBalance(
+        finalCashUsd,
+        finalBorrowedUsd
+      ));
 
       const equityAfterLiquidation = finalCashUsd.minus(finalBorrowedUsd);
       bankrupt = equityAfterLiquidation.lte(0);
@@ -303,10 +353,10 @@ export async function executeTrade(agentId: string, input: ReturnType<typeof val
         data: {
           agentId: agent.id,
           type: "LIQUIDATION",
-          summary: `${agent.name} was liquidated due to maintenance margin breach.`,
+          summary: `${agent.name} was liquidated due to risk threshold breach.`,
           dataJson: {
             equityAfterLiquidation: decimalToNumber(equityAfterLiquidation),
-            maintenanceThreshold: decimalToNumber(MAINTENANCE_MARGIN)
+            riskThreshold: decimalToNumber(MAINTENANCE_MARGIN)
           }
         }
       });

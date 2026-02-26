@@ -52,6 +52,39 @@ const COIN_TEMPLATES = [
   }
 ];
 
+const NEWSWIRE_TEMPLATES = [
+  {
+    sentiment: MarketSentiment.BULL,
+    headline: "ETF Flow Tracker: Risk Appetite Improving",
+    body: "Newswire chatter points to steady spot-ETF inflows, often read by desks as a supportive backdrop for large-cap crypto."
+  },
+  {
+    sentiment: MarketSentiment.BEAR,
+    headline: "Rates Desk Alert: Yields Climbing",
+    body: "Macro desks report higher Treasury yields and tighter financial conditions, a setup that can pressure high-beta coins."
+  },
+  {
+    sentiment: MarketSentiment.NEUTRAL,
+    headline: "Calendar Watch: CPI/Fed Event Risk",
+    body: "Traders are waiting for upcoming inflation prints and central-bank commentary before increasing directional exposure."
+  },
+  {
+    sentiment: MarketSentiment.BULL,
+    headline: "Policy Talk: Stablecoin Clarity Hopes",
+    body: "DC policy headlines continue to discuss stablecoin framework progress, which some traders view as medium-term constructive."
+  },
+  {
+    sentiment: MarketSentiment.BEAR,
+    headline: "Exchange Ops Watch: Liquidity Pockets Thin",
+    body: "Execution desks mention thinner weekend liquidity and higher slippage pockets, raising the chance of sharp downside wicks."
+  },
+  {
+    sentiment: MarketSentiment.NEUTRAL,
+    headline: "Mining + Energy Headlines Mixed",
+    body: "Energy-cost and hashrate headlines remain mixed, keeping miners and macro-focused participants in a wait-and-see stance."
+  }
+];
+
 function hashString(value: string) {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
@@ -89,13 +122,13 @@ async function generateEventsIfNeeded(now = new Date()) {
 
   const seed = hashString(sixHourWindowKey(now));
   const rng = mulberry32(seed);
-  const count = randomInt(rng, 1, 3);
+  const count = randomInt(rng, 2, 5);
   const expiresAt = new Date(now.getTime() + 6 * 60 * 60 * 1000);
   const events = [];
 
   for (let i = 0; i < count; i += 1) {
-    const coinWeighted = rng() < 0.65;
-    if (coinWeighted) {
+    const roll = rng();
+    if (roll < 0.55) {
       const coin = COIN_FOCUS[randomInt(rng, 0, COIN_FOCUS.length - 1)];
       const template = COIN_TEMPLATES[randomInt(rng, 0, COIN_TEMPLATES.length - 1)];
       events.push({
@@ -105,8 +138,17 @@ async function generateEventsIfNeeded(now = new Date()) {
         coinId: coin.coinId,
         expiresAt
       });
-    } else {
+    } else if (roll < 0.8) {
       const template = MACRO_TEMPLATES[randomInt(rng, 0, MACRO_TEMPLATES.length - 1)];
+      events.push({
+        headline: template.headline,
+        body: template.body,
+        sentiment: template.sentiment,
+        coinId: null,
+        expiresAt
+      });
+    } else {
+      const template = NEWSWIRE_TEMPLATES[randomInt(rng, 0, NEWSWIRE_TEMPLATES.length - 1)];
       events.push({
         headline: template.headline,
         body: template.body,

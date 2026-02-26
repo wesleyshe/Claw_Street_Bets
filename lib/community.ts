@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getMarketPrices } from "@/lib/market";
 import { buildPriceMap, computePortfolioMetrics, decimalToNumber } from "@/lib/trading";
+import { STARTING_CASH_USD } from "@/lib/game-config";
 
 export async function getLeaderboardData() {
   const market = await getMarketPrices();
@@ -19,21 +20,39 @@ export async function getLeaderboardData() {
       const metrics = computePortfolioMetrics(agent.portfolio!, agent.positions, priceMap);
       const equity = decimalToNumber(metrics.equity);
       const positionNotional = decimalToNumber(metrics.positionNotional);
-      const marginUsage =
+      const exposureUsage =
         metrics.equity.gt(0) && metrics.positionNotional.gt(0)
           ? Number(metrics.positionNotional.div(metrics.equity).toFixed(4))
           : 0;
+      const holdings = agent.positions
+        .map((position) => {
+          const qty = decimalToNumber(position.qty);
+          const markPrice = priceMap[position.coinId] ?? decimalToNumber(position.avgEntryUsd);
+          const marketValue = qty * markPrice;
+          const notional = Math.abs(marketValue);
+
+          return {
+            coinId: position.coinId,
+            qty,
+            marketValue,
+            notional
+          };
+        })
+        .filter((position) => position.notional > 0)
+        .sort((a, b) => b.notional - a.notional);
 
       return {
         agentId: agent.id,
         name: agent.name,
         tradingStyle: agent.tradingStyle,
         equity,
-        pnl: equity - 1_000_000,
-        marginUsage,
+        pnl: equity - STARTING_CASH_USD,
+        exposureUsage,
+        marginUsage: exposureUsage,
         bankrupt: agent.bankrupt,
         lastActAt: agent.lastActAt.toISOString(),
-        positionNotional
+        positionNotional,
+        holdings
       };
     })
     .sort((a, b) => b.equity - a.equity);

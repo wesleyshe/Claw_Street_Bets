@@ -16,7 +16,8 @@ function formatUsd(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: value < 1 ? 6 : 2
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(value);
 }
 
@@ -143,7 +144,7 @@ export default async function AgentHoldingsPage({ params }: AgentPageProps) {
                 {rows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.coinId}</td>
-                    <td className="numeric">{row.qty.toFixed(6)}</td>
+                    <td className="numeric">{row.qty.toFixed(4)}</td>
                     <td className="numeric">{formatUsd(row.avgEntry)}</td>
                     <td className="numeric">
                       {typeof row.currentPrice === "number" ? formatUsd(row.currentPrice) : "N/A"}

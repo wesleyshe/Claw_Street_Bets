@@ -4,6 +4,7 @@ import { fail, ok } from "@/lib/api-response";
 import { buildApiKey, buildClaimToken, hashApiKey } from "@/lib/keys";
 import { prisma } from "@/lib/prisma";
 import { assignTradingStyle } from "@/lib/trading-style";
+import { STARTING_CASH_USD } from "@/lib/game-config";
 
 type RegisterPayload = {
   name?: string;
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
       await tx.portfolio.create({
         data: {
           agentId: created.id,
-          cashUsd: new Prisma.Decimal("1000000"),
+          cashUsd: new Prisma.Decimal(STARTING_CASH_USD),
           borrowedUsd: new Prisma.Decimal("0")
         }
       });
