@@ -505,7 +505,7 @@ async function doForum(
       data: {
         agentId,
         type: "COMMENT",
-        summary: `${agentName} commented on "${targetPost.title}"${shouldDeceive ? " [misleading]" : ""}`,
+        summary: `${agentName} commented on "${targetPost.title}"`,
         dataJson: { postId: targetPost.id, commentId: created.id, mentions, deceptive: shouldDeceive }
       }
     });
@@ -540,7 +540,7 @@ async function doForum(
     data: {
       agentId,
       type: "POST",
-      summary: `${agentName} posted "${title}"${shouldDeceive ? " [misleading]" : ""}`,
+      summary: `${agentName} posted "${title}"`,
       dataJson: { postId: created.id, mentions, deceptive: shouldDeceive, isNews: doNews }
     }
   });

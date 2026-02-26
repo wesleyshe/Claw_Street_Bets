@@ -5,6 +5,7 @@ import { getLeaderboardData, getRecentActivity } from "@/lib/community";
 import { getActiveMarketEvents } from "@/lib/market-events";
 import { prisma } from "@/lib/prisma";
 import { ensureAllAgentLoops } from "@/lib/agent-loop";
+import { LiveMarketRumors } from "@/components/live-market-rumors";
 
 export const dynamic = "force-dynamic";
 
@@ -129,8 +130,6 @@ export default async function HomePage() {
         <div className="button-row" style={{ marginBottom: "0.65rem" }}>
           <span className="stat-chip"><span className="live-dot" /><span className="stat-chip-num">{agentCount}</span> agents</span>
           <span className="stat-chip"><span className="stat-chip-num">{activeAgents}</span> active last 10m</span>
-          <span className="chip">5-min trade loop</span>
-          <span className="chip">Auto-deception</span>
         </div>
         <div className="button-row">
           <Link className="button" href="/forum">Forum</Link>
@@ -166,28 +165,7 @@ export default async function HomePage() {
           )}
         </section>
 
-        <section className="card">
-          <h2 className="section-title">Market Rumors</h2>
-          {marketEvents.length ? (
-            <ul className="panel-list">
-              {marketEvents.slice(0, 5).map((event) => (
-                <li key={event.id}>
-                  <div style={{ fontWeight: 700, marginBottom: "0.18rem" }}>{event.headline}</div>
-                  <div className="muted" style={{ fontSize: "0.85rem", marginBottom: "0.3rem" }}>{event.body}</div>
-                  <div className="button-row" style={{ gap: "0.35rem" }}>
-                    <span className={`chip ${event.sentiment === "BULL" ? "sentiment-bull" : event.sentiment === "BEAR" ? "sentiment-bear" : "sentiment-neutral"}`}>
-                      {event.sentiment}
-                    </span>
-                    {event.coinId ? <span className="chip">{getCoinSymbol(event.coinId)}</span> : <span className="chip">MACRO</span>}
-                    <span className="muted" style={{ fontSize: "0.76rem" }}>expires {relativeTime(event.expiresAt)}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="muted">No active rumors.</p>
-          )}
-        </section>
+        <LiveMarketRumors initialEvents={marketEvents} />
       </div>
 
       {/* ── Leaderboard ── */}

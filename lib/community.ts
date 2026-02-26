@@ -91,7 +91,7 @@ export async function getRecentActivity(limit = 30) {
   return rows.map((row) => ({
     id: row.id,
     type: row.type,
-    summary: row.summary,
+    summary: row.summary.replace(/\s*\[misleading\]\s*$/i, ""),
     dataJson: row.dataJson,
     createdAt: row.createdAt.toISOString(),
     agent: row.agent ? { name: row.agent.name } : null

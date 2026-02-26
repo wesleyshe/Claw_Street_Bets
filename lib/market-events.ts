@@ -6,6 +6,16 @@ type CoinFocus = {
   symbol: "BTC" | "ETH" | "SOL" | "AVAX" | "DOGE" | "SHIB" | "XRP";
 };
 
+type MarketEventPayload = {
+  id: string;
+  headline: string;
+  body: string;
+  sentiment: MarketSentiment;
+  coinId: string | null;
+  createdAt: string;
+  expiresAt: string;
+};
+
 const COIN_FOCUS: CoinFocus[] = [
   { coinId: "bitcoin", symbol: "BTC" },
   { coinId: "ethereum", symbol: "ETH" },
@@ -15,6 +25,46 @@ const COIN_FOCUS: CoinFocus[] = [
   { coinId: "shiba-inu", symbol: "SHIB" },
   { coinId: "ripple", symbol: "XRP" }
 ];
+
+const COIN_ALIASES: Record<CoinFocus["coinId"], string[]> = {
+  bitcoin: ["bitcoin", "btc"],
+  ethereum: ["ethereum", "eth", "ether"],
+  solana: ["solana", "sol"],
+  "avalanche-2": ["avalanche", "avax"],
+  dogecoin: ["dogecoin", "doge"],
+  "shiba-inu": ["shiba inu", "shib"],
+  ripple: ["ripple", "xrp"]
+};
+
+const LIVE_NEWS_TTL_MS = 90_000;
+const LIVE_NEWS_LIMIT = 8;
+const LIVE_NEWS_EVENT_LIFETIME_MS = 90 * 60 * 1000;
+const GOOGLE_NEWS_URL = (() => {
+  const query =
+    "(bitcoin OR btc OR ethereum OR eth OR solana OR sol OR avalanche OR avax OR dogecoin OR doge OR shiba inu OR shib OR ripple OR xrp) crypto";
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+})();
+
+type LiveNewsState = {
+  cache: MarketEventPayload[];
+  lastUpdated: number | null;
+  refreshPromise: Promise<void> | null;
+};
+
+declare global {
+  var __csbLiveNewsState: LiveNewsState | undefined;
+}
+
+function getLiveNewsState(): LiveNewsState {
+  if (!globalThis.__csbLiveNewsState) {
+    globalThis.__csbLiveNewsState = {
+      cache: [],
+      lastUpdated: null,
+      refreshPromise: null
+    };
+  }
+  return globalThis.__csbLiveNewsState;
+}
 
 const MACRO_TEMPLATES = [
   {
@@ -98,6 +148,36 @@ const NEWSWIRE_TEMPLATES = [
   }
 ];
 
+const BULLISH_TERMS = [
+  "surge",
+  "rally",
+  "soar",
+  "jump",
+  "breakout",
+  "approval",
+  "inflow",
+  "adoption",
+  "partnership",
+  "record high",
+  "bull"
+];
+
+const BEARISH_TERMS = [
+  "drop",
+  "decline",
+  "plunge",
+  "selloff",
+  "sell-off",
+  "ban",
+  "hack",
+  "breach",
+  "exploit",
+  "lawsuit",
+  "outflow",
+  "liquidation",
+  "bear"
+];
+
 function hashString(value: string) {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
@@ -125,6 +205,161 @@ function sixHourWindowKey(date = new Date()) {
 
 function randomInt(rng: () => number, min: number, maxInclusive: number) {
   return Math.floor(rng() * (maxInclusive - min + 1)) + min;
+}
+
+function decodeXmlEntities(value: string) {
+  return value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&#39;", "'");
+}
+
+function stripHtml(value: string) {
+  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function unwrapCdata(value: string) {
+  return value.replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "");
+}
+
+function getTag(item: string, tag: string) {
+  const match = item.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i"));
+  if (!match) return "";
+  return decodeXmlEntities(unwrapCdata(match[1]).trim());
+}
+
+function cleanHeadline(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function shortBody(value: string) {
+  const text = stripHtml(value).replace(/\s+/g, " ").trim();
+  if (text.length <= 220) return text;
+  return `${text.slice(0, 217).trimEnd()}...`;
+}
+
+function containsToken(text: string, token: string) {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
+
+function detectCoinId(text: string): CoinFocus["coinId"] | null {
+  for (const coin of COIN_FOCUS) {
+    const aliases = COIN_ALIASES[coin.coinId];
+    if (aliases.some((alias) => containsToken(text, alias))) {
+      return coin.coinId;
+    }
+  }
+  return null;
+}
+
+function inferSentiment(text: string) {
+  const lower = text.toLowerCase();
+  let score = 0;
+
+  for (const term of BULLISH_TERMS) {
+    if (lower.includes(term)) score += 1;
+  }
+  for (const term of BEARISH_TERMS) {
+    if (lower.includes(term)) score -= 1;
+  }
+
+  if (score > 0) return MarketSentiment.BULL;
+  if (score < 0) return MarketSentiment.BEAR;
+  return MarketSentiment.NEUTRAL;
+}
+
+async function fetchLiveCryptoNews(now = new Date()): Promise<MarketEventPayload[]> {
+  const response = await fetch(GOOGLE_NEWS_URL, {
+    headers: { Accept: "application/rss+xml, application/xml, text/xml" },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google News RSS responded ${response.status}`);
+  }
+
+  const xml = await response.text();
+  const itemBlocks = xml.match(/<item>[\s\S]*?<\/item>/gi) ?? [];
+
+  const seen = new Set<string>();
+  const events: MarketEventPayload[] = [];
+
+  for (const item of itemBlocks) {
+    if (events.length >= LIVE_NEWS_LIMIT) break;
+
+    const headline = cleanHeadline(getTag(item, "title"));
+    if (!headline) continue;
+
+    const dedupeKey = headline.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const description = getTag(item, "description");
+    const pubDate = new Date(getTag(item, "pubDate"));
+    const publishedAt = Number.isFinite(pubDate.getTime()) ? pubDate : now;
+
+    const combinedText = `${headline} ${description}`;
+    const coinId = detectCoinId(combinedText);
+    const sentiment = inferSentiment(combinedText);
+    const createdAt = publishedAt.toISOString();
+    const expiresAt = new Date(Math.max(publishedAt.getTime(), now.getTime()) + LIVE_NEWS_EVENT_LIFETIME_MS).toISOString();
+
+    events.push({
+      id: `live-${publishedAt.getTime()}-${events.length}`,
+      headline,
+      body: shortBody(description || "Live crypto market update from newswire feeds."),
+      sentiment,
+      coinId,
+      createdAt,
+      expiresAt
+    });
+  }
+
+  if (!events.length) {
+    throw new Error("No usable live crypto news items were parsed.");
+  }
+
+  return events;
+}
+
+async function refreshLiveEvents(now = new Date()): Promise<MarketEventPayload[]> {
+  const state = getLiveNewsState();
+  if (state.refreshPromise) {
+    await state.refreshPromise;
+    return state.cache;
+  }
+
+  state.refreshPromise = (async () => {
+    const events = await fetchLiveCryptoNews(now);
+    state.cache = events;
+    state.lastUpdated = Date.now();
+  })();
+
+  try {
+    await state.refreshPromise;
+  } finally {
+    state.refreshPromise = null;
+  }
+
+  return state.cache;
+}
+
+async function getLiveEvents(now = new Date()): Promise<MarketEventPayload[]> {
+  const state = getLiveNewsState();
+  const currentTime = now.getTime();
+  const stale = !state.lastUpdated || currentTime - state.lastUpdated >= LIVE_NEWS_TTL_MS;
+  if (stale) {
+    try {
+      return await refreshLiveEvents(now);
+    } catch (error) {
+      if (!state.cache.length) throw error;
+      return state.cache;
+    }
+  }
+  return state.cache;
 }
 
 async function generateEventsIfNeeded(now = new Date()) {
@@ -176,6 +411,17 @@ async function generateEventsIfNeeded(now = new Date()) {
 }
 
 export async function getActiveMarketEvents() {
+  const liveNow = new Date();
+  try {
+    const liveEvents = await getLiveEvents(liveNow);
+    const activeLive = liveEvents.filter((event) => new Date(event.expiresAt).getTime() > liveNow.getTime());
+    if (activeLive.length) {
+      return activeLive;
+    }
+  } catch (error) {
+    console.error("[market-events] live feed unavailable, using generated fallback:", error);
+  }
+
   const now = new Date();
   let events = await prisma.marketEvent.findMany({
     where: { expiresAt: { gt: now } },
@@ -190,7 +436,7 @@ export async function getActiveMarketEvents() {
     });
   }
 
-  return events.map((event) => ({
+  return events.map((event): MarketEventPayload => ({
     id: event.id,
     headline: event.headline,
     body: event.body,
