@@ -1,4 +1,6 @@
 const COINGECKO_SIMPLE_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price";
+const CRYPTOCOMPARE_PRICE_URL = "https://min-api.cryptocompare.com/data/pricemulti";
+const COINCAP_ASSETS_URL = "https://api.coincap.io/v2/assets";
 const PRICE_TTL_MS = 60_000;
 const BACKGROUND_REFRESH_MS = 120_000;
 
@@ -33,6 +35,7 @@ type PriceEntry = {
 type MarketState = {
   cache: Partial<Record<CoinId, PriceEntry>>;
   lastUpdated: number | null;
+  lastSource: string | null;
   refreshPromise: Promise<void> | null;
   backgroundStarted: boolean;
 };
@@ -46,6 +49,7 @@ function getState(): MarketState {
     globalThis.__csbMarketState = {
       cache: {},
       lastUpdated: null,
+      lastSource: null,
       refreshPromise: null,
       backgroundStarted: false
     };
@@ -80,6 +84,120 @@ function buildPricesSnapshot(state: MarketState) {
   return prices;
 }
 
+const COINCAP_IDS: Record<CoinId, string> = {
+  bitcoin: "bitcoin",
+  ethereum: "ethereum",
+  solana: "solana",
+  "avalanche-2": "avalanche",
+  dogecoin: "dogecoin",
+  "shiba-inu": "shiba-inu",
+  ripple: "xrp"
+};
+
+type PriceMap = Partial<Record<CoinId, number>>;
+
+function applyPriceMap(state: MarketState, priceMap: PriceMap, source: string) {
+  const fetchedAt = now();
+  let updatedAny = false;
+
+  for (const coinId of SUPPORTED_COINS) {
+    const usd = priceMap[coinId];
+    if (typeof usd === "number" && Number.isFinite(usd) && usd > 0) {
+      state.cache[coinId] = { usd, fetchedAt };
+      updatedAny = true;
+    }
+  }
+
+  if (updatedAny) {
+    state.lastUpdated = fetchedAt;
+    state.lastSource = source;
+  }
+
+  return updatedAny;
+}
+
+async function fetchFromCoinGecko(): Promise<PriceMap> {
+  const ids = SUPPORTED_COINS.join(",");
+  const url = `${COINGECKO_SIMPLE_PRICE_URL}?ids=${encodeURIComponent(ids)}&vs_currencies=usd`;
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`CoinGecko responded ${response.status}`);
+  }
+
+  const body = (await response.json()) as Partial<Record<CoinId, { usd?: number }>>;
+  const prices: PriceMap = {};
+  for (const coinId of SUPPORTED_COINS) {
+    const usd = body[coinId]?.usd;
+    if (typeof usd === "number" && Number.isFinite(usd)) {
+      prices[coinId] = usd;
+    }
+  }
+  return prices;
+}
+
+async function fetchFromCryptoCompare(): Promise<PriceMap> {
+  const symbols = SUPPORTED_COINS.map((coinId) => COIN_SYMBOLS[coinId]).join(",");
+  const url = `${CRYPTOCOMPARE_PRICE_URL}?fsyms=${encodeURIComponent(symbols)}&tsyms=USD`;
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`CryptoCompare responded ${response.status}`);
+  }
+
+  const body = (await response.json()) as Partial<Record<string, { USD?: number }>>;
+  const prices: PriceMap = {};
+  for (const coinId of SUPPORTED_COINS) {
+    const symbol = COIN_SYMBOLS[coinId];
+    const usd = body[symbol]?.USD;
+    if (typeof usd === "number" && Number.isFinite(usd)) {
+      prices[coinId] = usd;
+    }
+  }
+  return prices;
+}
+
+async function fetchFromCoinCap(): Promise<PriceMap> {
+  const ids = SUPPORTED_COINS.map((coinId) => COINCAP_IDS[coinId]).join(",");
+  const url = `${COINCAP_ASSETS_URL}?ids=${encodeURIComponent(ids)}`;
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`CoinCap responded ${response.status}`);
+  }
+
+  const body = (await response.json()) as { data?: Array<{ id?: string; priceUsd?: string }> };
+  const byCoinCapId = new Map<string, number>();
+
+  for (const row of body.data ?? []) {
+    if (!row.id || typeof row.priceUsd !== "string") continue;
+    const parsed = Number(row.priceUsd);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      byCoinCapId.set(row.id, parsed);
+    }
+  }
+
+  const prices: PriceMap = {};
+  for (const coinId of SUPPORTED_COINS) {
+    const coinCapId = COINCAP_IDS[coinId];
+    const usd = byCoinCapId.get(coinCapId);
+    if (typeof usd === "number") {
+      prices[coinId] = usd;
+    }
+  }
+
+  return prices;
+}
+
 export async function refreshAll() {
   const state = getState();
   if (state.refreshPromise) {
@@ -87,34 +205,26 @@ export async function refreshAll() {
   }
 
   state.refreshPromise = (async () => {
-    const ids = SUPPORTED_COINS.join(",");
-    const url = `${COINGECKO_SIMPLE_PRICE_URL}?ids=${encodeURIComponent(ids)}&vs_currencies=usd`;
-    const response = await fetch(url, {
-      headers: { Accept: "application/json" },
-      cache: "no-store"
-    });
+    const providers: Array<{ source: string; fetcher: () => Promise<PriceMap> }> = [
+      { source: "coingecko", fetcher: fetchFromCoinGecko },
+      { source: "cryptocompare", fetcher: fetchFromCryptoCompare },
+      { source: "coincap", fetcher: fetchFromCoinCap }
+    ];
+    const errors: string[] = [];
 
-    if (!response.ok) {
-      throw new Error(`CoinGecko responded ${response.status}`);
-    }
-
-    const body = (await response.json()) as Partial<Record<CoinId, { usd?: number }>>;
-    const fetchedAt = now();
-    let updatedAny = false;
-
-    for (const coinId of SUPPORTED_COINS) {
-      const usd = body[coinId]?.usd;
-      if (typeof usd === "number" && Number.isFinite(usd)) {
-        state.cache[coinId] = { usd, fetchedAt };
-        updatedAny = true;
+    for (const provider of providers) {
+      try {
+        const priceMap = await provider.fetcher();
+        if (applyPriceMap(state, priceMap, provider.source)) {
+          return;
+        }
+        errors.push(`${provider.source}: no usable prices`);
+      } catch (error) {
+        errors.push(`${provider.source}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
-    if (updatedAny) {
-      state.lastUpdated = fetchedAt;
-    } else {
-      throw new Error("CoinGecko response did not contain usable prices.");
-    }
+    throw new Error(`All price providers failed (${errors.join(" | ")})`);
   })();
 
   try {
@@ -151,7 +261,7 @@ export async function getMarketPrices() {
       await refreshAll();
     } catch {
       if (hasAnyPrices(state)) {
-        warning = "CoinGecko unavailable. Returning last known cached prices.";
+        warning = "Live market fetch failed. Returning last known cached prices.";
       } else {
         throw new Error("Unable to fetch prices and no cached data exists.");
       }
@@ -161,7 +271,7 @@ export async function getMarketPrices() {
   return {
     prices: buildPricesSnapshot(state),
     lastUpdated: state.lastUpdated ? new Date(state.lastUpdated).toISOString() : null,
-    source: "coingecko" as const,
+    source: state.lastSource ?? "unknown",
     warning
   };
 }

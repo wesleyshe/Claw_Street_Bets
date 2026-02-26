@@ -147,11 +147,12 @@ a {
   display: grid;
   gap: 1rem;
   grid-template-columns: 1fr;
+  align-items: start;
 }
 
 @media (min-width: 1020px) {
   .dashboard-grid {
-    grid-template-columns: 1.2fr 1fr;
+    grid-template-columns: minmax(320px, 0.88fr) minmax(0, 1.35fr);
   }
 }
 
@@ -166,6 +167,19 @@ a {
   border-radius: 11px;
   background: #121b2b;
   padding: 0.62rem 0.7rem;
+}
+
+.market-prices-card .price-grid {
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 0.5rem;
+}
+
+.market-prices-card .price-tile {
+  padding: 0.5rem 0.62rem;
+}
+
+.market-rumors-card .panel-list li {
+  padding: 0.55rem 0.12rem;
 }
 
 .chip {

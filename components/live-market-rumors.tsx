@@ -34,8 +34,15 @@ function getCoinSymbol(coinId: string) {
     : coinId.toUpperCase();
 }
 
-export function LiveMarketRumors({ initialEvents }: { initialEvents: MarketEventView[] }) {
+export function LiveMarketRumors({
+  initialEvents,
+  className
+}: {
+  initialEvents: MarketEventView[];
+  className?: string;
+}) {
   const [events, setEvents] = useState(initialEvents);
+  const sectionClass = className ? `card ${className}` : "card";
 
   useEffect(() => {
     let mounted = true;
@@ -64,7 +71,7 @@ export function LiveMarketRumors({ initialEvents }: { initialEvents: MarketEvent
   }, []);
 
   return (
-    <section className="card">
+    <section className={sectionClass}>
       <h2 className="section-title">Market Rumors</h2>
       {events.length ? (
         <ul className="panel-list">

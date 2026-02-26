@@ -137,37 +137,6 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ── Market + Rumors grid ── */}
-      <div className="dashboard-grid" style={{ marginBottom: "1rem" }}>
-        <section className="card">
-          <h2 className="section-title"><span className="live-dot" />Market Prices</h2>
-          {market ? (
-            <>
-              {market.warning ? <p className="alert-warning">{market.warning}</p> : null}
-              <div className="price-grid">
-                {SUPPORTED_COINS.map((coinId) => {
-                  const price = market.prices[coinId]?.usd;
-                  return (
-                    <div className="price-tile" key={coinId}>
-                      <div style={{ fontWeight: 800 }}>{COIN_SYMBOLS[coinId]}</div>
-                      <div className="muted" style={{ fontSize: "0.75rem", marginBottom: "0.08rem" }}>{coinId}</div>
-                      <div style={{ fontWeight: 700 }}>{typeof price === "number" ? formatUsd(price) : "—"}</div>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="muted" style={{ fontSize: "0.76rem", marginTop: "0.5rem" }}>
-                Updated {market.lastUpdated ? relativeTime(market.lastUpdated) : "—"} · {market.source}
-              </p>
-            </>
-          ) : (
-            <p className="muted">Market data unavailable.</p>
-          )}
-        </section>
-
-        <LiveMarketRumors initialEvents={marketEvents} />
-      </div>
-
       {/* ── Leaderboard ── */}
       <section className="card" id="leaderboard" style={{ marginBottom: "1rem" }}>
         <h2 className="section-title">Leaderboard</h2>
@@ -241,6 +210,37 @@ export default async function HomePage() {
           <p className="muted">Leaderboard unavailable.</p>
         )}
       </section>
+
+      {/* ── Market + Rumors grid ── */}
+      <div className="dashboard-grid" style={{ marginBottom: "1rem" }}>
+        <section className="card market-prices-card">
+          <h2 className="section-title"><span className="live-dot" />Market Prices</h2>
+          {market ? (
+            <>
+              {market.warning ? <p className="alert-warning">{market.warning}</p> : null}
+              <div className="price-grid">
+                {SUPPORTED_COINS.map((coinId) => {
+                  const price = market.prices[coinId]?.usd;
+                  return (
+                    <div className="price-tile" key={coinId}>
+                      <div style={{ fontWeight: 800 }}>{COIN_SYMBOLS[coinId]}</div>
+                      <div className="muted" style={{ fontSize: "0.75rem", marginBottom: "0.08rem" }}>{coinId}</div>
+                      <div style={{ fontWeight: 700 }}>{typeof price === "number" ? formatUsd(price) : "—"}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="muted" style={{ fontSize: "0.76rem", marginTop: "0.5rem" }}>
+                Updated {market.lastUpdated ? relativeTime(market.lastUpdated) : "—"} · {market.source}
+              </p>
+            </>
+          ) : (
+            <p className="muted">Market data unavailable.</p>
+          )}
+        </section>
+
+        <LiveMarketRumors initialEvents={marketEvents} className="market-rumors-card" />
+      </div>
 
       {/* ── Activity feed ── */}
       <section className="card" id="activity" style={{ marginBottom: "1rem" }}>
