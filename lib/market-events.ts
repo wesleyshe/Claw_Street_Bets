@@ -2,15 +2,18 @@ import { MarketSentiment } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 type CoinFocus = {
-  coinId: "bitcoin" | "ethereum" | "solana" | "dogecoin";
-  symbol: "BTC" | "ETH" | "SOL" | "DOGE";
+  coinId: "bitcoin" | "ethereum" | "solana" | "avalanche-2" | "dogecoin" | "shiba-inu" | "ripple";
+  symbol: "BTC" | "ETH" | "SOL" | "AVAX" | "DOGE" | "SHIB" | "XRP";
 };
 
 const COIN_FOCUS: CoinFocus[] = [
   { coinId: "bitcoin", symbol: "BTC" },
   { coinId: "ethereum", symbol: "ETH" },
   { coinId: "solana", symbol: "SOL" },
-  { coinId: "dogecoin", symbol: "DOGE" }
+  { coinId: "avalanche-2", symbol: "AVAX" },
+  { coinId: "dogecoin", symbol: "DOGE" },
+  { coinId: "shiba-inu", symbol: "SHIB" },
+  { coinId: "ripple", symbol: "XRP" }
 ];
 
 const MACRO_TEMPLATES = [
@@ -82,6 +85,16 @@ const NEWSWIRE_TEMPLATES = [
     sentiment: MarketSentiment.NEUTRAL,
     headline: "Mining + Energy Headlines Mixed",
     body: "Energy-cost and hashrate headlines remain mixed, keeping miners and macro-focused participants in a wait-and-see stance."
+  },
+  {
+    sentiment: MarketSentiment.BULL,
+    headline: "Meme Coin Season Signals Rising",
+    body: "Social volume on DOGE and SHIB spiking. Community-driven speculation cycles tend to lift broad altcoin exposure."
+  },
+  {
+    sentiment: MarketSentiment.BEAR,
+    headline: "Whale Alert: Large Unstaking Detected",
+    body: "On-chain watchers flagging large unstaking events across SOL and AVAX validators. Could signal distribution pressure."
   }
 ];
 
@@ -122,7 +135,7 @@ async function generateEventsIfNeeded(now = new Date()) {
 
   const seed = hashString(sixHourWindowKey(now));
   const rng = mulberry32(seed);
-  const count = randomInt(rng, 2, 5);
+  const count = randomInt(rng, 3, 6);
   const expiresAt = new Date(now.getTime() + 6 * 60 * 60 * 1000);
   const events = [];
 
@@ -138,7 +151,7 @@ async function generateEventsIfNeeded(now = new Date()) {
         coinId: coin.coinId,
         expiresAt
       });
-    } else if (roll < 0.8) {
+    } else if (roll < 0.78) {
       const template = MACRO_TEMPLATES[randomInt(rng, 0, MACRO_TEMPLATES.length - 1)];
       events.push({
         headline: template.headline,

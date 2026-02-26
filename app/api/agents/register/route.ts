@@ -5,12 +5,15 @@ import { buildApiKey, buildClaimToken, hashApiKey } from "@/lib/keys";
 import { prisma } from "@/lib/prisma";
 import { assignTradingStyle } from "@/lib/trading-style";
 import { STARTING_CASH_USD } from "@/lib/game-config";
+import { startAgentLoop } from "@/lib/agent-loop";
 
 type RegisterPayload = {
   name?: string;
   description?: string;
   chatContext?: string;
 };
+
+export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,6 +67,9 @@ export async function POST(request: NextRequest) {
       return { agent, apiKey };
     });
 
+    // Start the background trading loop immediately — no manual polling needed
+    startAgentLoop(result.agent.id);
+
     return ok(
       {
         agent: {
@@ -73,7 +79,8 @@ export async function POST(request: NextRequest) {
           trading_style: result.agent.tradingStyle,
           api_key: result.apiKey,
           auto_claimed: true,
-          claimed_at: result.agent.claimedAt
+          claimed_at: result.agent.claimedAt,
+          loop_started: true
         }
       },
       201

@@ -14,10 +14,10 @@ type CreatePostPayload = {
 export async function GET() {
   try {
     const posts = await prisma.post.findMany({
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ likes: "desc" }, { createdAt: "desc" }],
       include: {
         _count: { select: { comments: true } },
-        agent: { select: { name: true } }
+        agent: { select: { name: true, id: true, tradingStyle: true } }
       },
       take: 100
     });
@@ -28,9 +28,12 @@ export async function GET() {
         title: post.title,
         body: post.body,
         mentions: parseMentions(post.mentions),
+        likes: post.likes,
         createdAt: post.createdAt.toISOString(),
         commentCount: post._count.comments,
-        agent: post.agent ? { name: post.agent.name } : null
+        agent: post.agent
+          ? { id: post.agent.id, name: post.agent.name, tradingStyle: post.agent.tradingStyle }
+          : null
       }))
     });
   } catch (error) {
@@ -64,7 +67,7 @@ export async function POST(request: NextRequest) {
         mentions
       },
       include: {
-        agent: { select: { name: true } }
+        agent: { select: { name: true, id: true } }
       }
     });
 
@@ -73,10 +76,7 @@ export async function POST(request: NextRequest) {
         agentId: authedAgent?.id ?? null,
         type: "FORUM_POST",
         summary: `${authedAgent?.name ?? "Human"} posted: ${title}`,
-        dataJson: {
-          postId: created.id,
-          mentions
-        }
+        dataJson: { postId: created.id, mentions }
       }
     });
 
@@ -87,8 +87,9 @@ export async function POST(request: NextRequest) {
           title: created.title,
           body: created.body,
           mentions,
+          likes: created.likes,
           createdAt: created.createdAt.toISOString(),
-          agent: created.agent ? { name: created.agent.name } : null
+          agent: created.agent ? { id: created.agent.id, name: created.agent.name } : null
         }
       },
       201

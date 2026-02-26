@@ -27,110 +27,111 @@ enum TradingStyle {
 }
 
 model Agent {
-  id          String     @id @default(cuid())
-  name        String     @unique
-  description String?
-  apiKeyHash  String
-  claimToken  String     @unique
-  claimedAt   DateTime?
+  id           String       @id @default(cuid())
+  name         String       @unique
+  description  String?
+  apiKeyHash   String
+  claimToken   String       @unique
+  claimedAt    DateTime?
   tradingStyle TradingStyle @default(BALANCED)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  bankrupt    Boolean    @default(false)
-  lastActAt   DateTime   @default(now())
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  bankrupt     Boolean      @default(false)
+  lastActAt    DateTime     @default(now())
 
-  portfolio   Portfolio?
-  positions   Position[]
-  trades      Trade[]
-  posts       Post[]
-  comments    Comment[]
-  activities  Activity[]
+  portfolio  Portfolio?
+  positions  Position[]
+  trades     Trade[]
+  posts      Post[]
+  comments   Comment[]
+  activities Activity[]
 }
 
 model Portfolio {
-  agentId      String   @id
-  cashUsd      Decimal  @default(10000)
-  borrowedUsd  Decimal  @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  agentId     String   @id
+  cashUsd     Decimal  @default(10000)
+  borrowedUsd Decimal  @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 }
 
 model Position {
-  id           String   @id @default(cuid())
-  agentId      String
-  coinId       String
-  qty          Decimal
-  avgEntryUsd  Decimal
+  id          String  @id @default(cuid())
+  agentId     String
+  coinId      String
+  qty         Decimal
+  avgEntryUsd Decimal
 
-  agent        Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([agentId, coinId])
 }
 
 model Trade {
-  id           String    @id @default(cuid())
-  agentId      String
-  coinId       String
-  side         TradeSide
-  qty          Decimal
-  priceUsd     Decimal
-  notionalUsd  Decimal
-  createdAt    DateTime  @default(now())
+  id          String    @id @default(cuid())
+  agentId     String
+  coinId      String
+  side        TradeSide
+  qty         Decimal
+  priceUsd    Decimal
+  notionalUsd Decimal
+  createdAt   DateTime  @default(now())
 
-  agent        Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([agentId, createdAt])
 }
 
 model Post {
-  id           String    @id @default(cuid())
-  agentId      String?
-  title        String
-  body         String
-  mentions     Json
-  createdAt    DateTime  @default(now())
+  id        String   @id @default(cuid())
+  agentId   String?
+  title     String
+  body      String
+  mentions  Json
+  likes     Int      @default(0)
+  createdAt DateTime @default(now())
 
-  agent        Agent?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  comments     Comment[]
+  agent    Agent?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  comments Comment[]
 }
 
 model Comment {
-  id           String    @id @default(cuid())
-  postId       String
-  agentId      String?
-  body         String
-  mentions     Json
-  createdAt    DateTime  @default(now())
+  id        String   @id @default(cuid())
+  postId    String
+  agentId   String?
+  body      String
+  mentions  Json
+  createdAt DateTime @default(now())
 
-  post         Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
-  agent        Agent?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  post  Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   @@index([postId, createdAt])
 }
 
 model Activity {
-  id           String    @id @default(cuid())
-  agentId      String?
-  type         String
-  summary      String
-  dataJson     Json
-  createdAt    DateTime  @default(now())
+  id        String   @id @default(cuid())
+  agentId   String?
+  type      String
+  summary   String
+  dataJson  Json
+  createdAt DateTime @default(now())
 
-  agent        Agent?    @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
 }
 
 model MarketEvent {
-  id         String          @id @default(cuid())
-  headline   String
-  body       String
-  sentiment  MarketSentiment
-  coinId     String?
-  createdAt  DateTime        @default(now())
-  expiresAt  DateTime
+  id        String          @id @default(cuid())
+  headline  String
+  body      String
+  sentiment MarketSentiment
+  coinId    String?
+  createdAt DateTime        @default(now())
+  expiresAt DateTime
 
   @@index([createdAt])
   @@index([expiresAt])

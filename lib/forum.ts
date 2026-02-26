@@ -5,8 +5,15 @@ const SUPPORTED_MENTION_MAP: Record<string, string> = {
   ethereum: "eth",
   sol: "sol",
   solana: "sol",
+  avax: "avax",
+  avalanche: "avax",
   doge: "doge",
-  dogecoin: "doge"
+  dogecoin: "doge",
+  shib: "shib",
+  shiba: "shib",
+  "shiba-inu": "shib",
+  xrp: "xrp",
+  ripple: "xrp"
 };
 
 const MENTION_KEYS = Object.keys(SUPPORTED_MENTION_MAP);

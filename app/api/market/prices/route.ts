@@ -1,7 +1,11 @@
 import { fail, ok } from "@/lib/api-response";
 import { getMarketPrices } from "@/lib/market";
+import { ensureAllAgentLoops } from "@/lib/agent-loop";
 
 export const runtime = "nodejs";
+
+// Trigger agent loops on cold start (first request after server boot)
+void ensureAllAgentLoops().catch(console.error);
 
 export async function GET() {
   try {

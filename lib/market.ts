@@ -2,17 +2,15 @@ const COINGECKO_SIMPLE_PRICE_URL = "https://api.coingecko.com/api/v3/simple/pric
 const PRICE_TTL_MS = 60_000;
 const BACKGROUND_REFRESH_MS = 120_000;
 
+/** 7 highest-volatility coins supported by the game */
 export const SUPPORTED_COINS = [
   "bitcoin",
   "ethereum",
   "solana",
   "avalanche-2",
-  "cardano",
   "dogecoin",
   "shiba-inu",
-  "ripple",
-  "chainlink",
-  "uniswap"
+  "ripple"
 ] as const;
 
 export type CoinId = (typeof SUPPORTED_COINS)[number];
@@ -22,12 +20,9 @@ export const COIN_SYMBOLS: Record<CoinId, string> = {
   ethereum: "ETH",
   solana: "SOL",
   "avalanche-2": "AVAX",
-  cardano: "ADA",
   dogecoin: "DOGE",
   "shiba-inu": "SHIB",
-  ripple: "XRP",
-  chainlink: "LINK",
-  uniswap: "UNI"
+  ripple: "XRP"
 };
 
 type PriceEntry = {
@@ -55,7 +50,6 @@ function getState(): MarketState {
       backgroundStarted: false
     };
   }
-
   return globalThis.__csbMarketState;
 }
 
@@ -136,19 +130,14 @@ export function ensureMarketBackgroundRefresh() {
 
   state.backgroundStarted = true;
   const timer = setInterval(() => {
-    void refreshAll().catch(() => {
-      // Keep last known prices and retry on next cycle.
-    });
+    void refreshAll().catch(() => {});
   }, BACKGROUND_REFRESH_MS);
 
   if (typeof timer.unref === "function") {
     timer.unref();
   }
 
-  // Warm cache early without blocking requests.
-  void refreshAll().catch(() => {
-    // If startup fetch fails, requests can still try later.
-  });
+  void refreshAll().catch(() => {});
 }
 
 export async function getMarketPrices() {
